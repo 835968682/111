@@ -1,0 +1,25 @@
+This repository contains implementations of spatially aware machine learning models for analyzing the relationship between urban development and PM2.5 concentrations across Chinese cities. The code builds upon existing open-source implementations with modifications for our specific research needs.
+
+## Model Implementations
+
+### 1. Geographically Weighted XGBoost (G-XGBoost)
+
+**Original Source**: [geogreko/DemoGXGBoost](https://github.com/geogreko/DemoGXGBoost)  
+**License**: MIT License
+
+#### Key Modifications Made:
+- **Hyperparameter Optimization**: Enhanced parameter tuning with extended search spaces and additional parameters
+- **Model Persistence**: Added comprehensive model saving functionality for global and local models
+- **SHAP Analysis Support**: Implemented model export compatible with SHAP analysis pipelines
+
+### 2. Geographically Weighted Random Forest (GWRF)
+
+**Original Source**: [liuhao-cug/GWRF](https://github.com/liuhao-cug)  
+**License**: Please refer to original repository for license details
+
+#### Key Modifications Made:
+- **GeoXGBoost Integration**: Unified parameter optimization and bandwidth selection with G-XGBoost methodology
+- **Numerical Stability**: Improved Haversine distance calculation with clipping for mathematical stability
+- **Error Handling**: Comprehensive exception handling with fallback mechanisms
+
+## Research Context
