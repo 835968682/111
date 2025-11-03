@@ -3,7 +3,6 @@
 # MODIFICATIONS:
 # - Added pandas import with alias
 # - Added importlib for module reloading (important for Jupyter environments)
-# - Changed data file names to project-specific files (2013_2016Qcroods.csv, 2013_2016Qdata.csv)
 # - Added module reloading and debugging prints to ensure proper function loading
 # =============================================================================
 
