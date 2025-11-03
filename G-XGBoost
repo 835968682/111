@@ -1,0 +1,190 @@
+## Step 1 Import libraries and data
+# =============================================================================
+# MODIFICATIONS:
+# - Added pandas import with alias
+# - Added importlib for module reloading (important for Jupyter environments)
+# - Changed data file names to project-specific files (2013_2016Qcroods.csv, 2013_2016Qdata.csv)
+# - Added module reloading and debugging prints to ensure proper function loading
+# =============================================================================
+
+# Import libraries
+import geoxgboost as gx
+import pandas as pd
+import importlib  # Added for ensuring module reload in Jupyter environments
+
+# Ensure module reload (particularly important in Jupyter)
+importlib.reload(gx)
+print(gx.global_xgb.__defaults__)  # Debug: Check function default parameters
+# Expected output: (..., 0.20, ...)
+
+# Import data with project-specific file names
+Coords = pd.read_csv('2013_2016Qcroods.csv')  # Coordinates of centroid - MODIFIED FILE NAME
+Data = pd.read_csv(
+    '2013_2016Qdata.csv')  # Data including GISid, X(independent variables) and y (dependent variable) - MODIFIED FILE NAME
+X = Data.iloc[:, 1:-1]  # Remove GISid and y from original data to keep only independent variables
+y = Data.iloc[:, -1]  # Dependent y
+VarNames = X.columns[:]  # Get variables' names. Used for labeling Dataframes
+
+## Step 2 Hyper parameter tuning. Define initial hyperparameters for inner loop
+# =============================================================================
+# MODIFICATIONS:
+# - Updated hyperparameter values for better model performance
+# - Added 'max_delta_step' parameter
+# - Modified hyperparameter search space (Param1_Values, Param2_Values, Param3_Values)
+# - Changed Param3 from 'max_depth' to 'colsample_bytree'
+# =============================================================================
+
+params = {
+    'n_estimators': 2500,  # MODIFIED: Increased from 100 to 2500 for better convergence
+    'learning_rate': 0.1,  # Kept at 0.1
+    'max_depth': 10,  # MODIFIED: Increased from 6 to 10 for more complex trees
+    'min_child_weight': 2,  # MODIFIED: Increased from 1 to 2 for more regularization
+    'gamma': 0.8,  # MODIFIED: Increased from 0 to 0.8 for more conservative pruning
+    'subsample': 0.6,  # MODIFIED: Decreased from 0.8 to 0.6 for more randomness
+    'colsample_bytree': 0.7,  # MODIFIED: Decreased from 0.8 to 0.7 for more feature randomness
+    'reg_alpha': 0,  # Kept at 0
+    'reg_lambda': 0.7,  # MODIFIED: Decreased from 1 to 0.7 for less L2 regularization
+    'max_delta_step': 1,  # ADDED: New parameter for imbalanced datasets
+}
+
+# Define search space for hyperparameters of inner loop
+Param1 = None;
+Param2 = None;
+Param3 = None
+Param1_Values = [];
+Param2_Values = [];
+Param3_Values = []
+
+# Set hyperparameters and values - MODIFIED search spaces
+Param1 = 'n_estimators'
+Param1_Values = [100, 200, 500, 1500, 2000, 2500]  # MODIFIED: Extended range
+Param2 = 'learning_rate'
+Param2_Values = [0.01, 0.05, 0.1]  # MODIFIED: Added smaller learning rates
+Param3 = 'colsample_bytree'  # MODIFIED: Changed from 'max_depth' to 'colsample_bytree'
+Param3_Values = [0.5, 0.6, 0.7, 0.8, 0.9]  # MODIFIED: New values for colsample_bytree
+
+# Create grid
+param_grid = gx.create_param_grid(Param1, Param1_Values, Param2, Param2_Values, Param3, Param3_Values)
+
+## Step 3 Nested CV to tune hyperparameters
+# No modifications to function call, but uses updated parameters from above
+params, Output_NestedCV = gx.nestedCV(X, y, param_grid, Param1, Param2, Param3, params)
+
+## Step 4 GlobalXGBoost model
+Output_GlobalXGBoost = gx.global_xgb(X, y, params)
+
+# =============================================================================
+# MODIFICATIONS: Added model saving functionality for persistence and SHAP analysis
+# =============================================================================
+# NEW: Save model for later use and SHAP analysis
+# Try to extract model object and save it
+# Common attribute names include model, best_model, xgb_model, etc.
+# You can use print(dir(Output_GlobalXGBoost)) to inspect attributes first
+
+# Print dictionary structure to identify model key name
+print("Dictionary keys:", Output_GlobalXGBoost.keys())  # Expected output: dict_keys(['model', 'params', 'metrics'])
+
+# Extract and save model
+if 'model' in Output_GlobalXGBoost:  # Replace with actual key name if different
+    model = Output_GlobalXGBoost['model']
+    try:
+        model.save_model('2013_2016GlobalXGB_model.json')  # XGBoost native format
+        print("Model saved as JSON format")
+    except AttributeError:
+        import joblib
+
+        joblib.dump(model, '2013_2016GlobalXGB_model.pkl')  # sklearn API format
+        print("Model saved as PKL format")
+else:
+    print("Model key not found, please check dictionary structure:", Output_GlobalXGBoost.keys())
+
+## Step 5 Optimize Bandwidth
+# MODIFIED: Adjusted bandwidth search range for better spatial optimization
+bw = gx.optimize_bw(X, y, Coords, params, bw_min=75, bw_max=85, step=5, Kernel='Adaptive', spatial_weights=True)
+
+## Step 6 GXGB (Geographical-XGBoost)
+Output_GXGB_LocalModel = gx.gxgb(X, y, Coords, params, bw=bw, Kernel='Adaptive', spatial_weights=True,
+                                 alpha_wt_type='varying', alpha_wt=0.5)
+
+# =============================================================================
+# MODIFICATIONS: Comprehensive local model saving for SHAP analysis and reproducibility
+# =============================================================================
+# NEW: Save local models (adapted for SHAP analysis code)
+print("GXGB output dictionary keys:", Output_GXGB_LocalModel.keys())
+
+# Save all local models (compatible with SHAP analysis code)
+if 'local_models' in Output_GXGB_LocalModel:
+    local_models = Output_GXGB_LocalModel['local_models']
+    num_units = len(local_models)
+    print(f"Found {num_units} local models")
+
+    # Create save directory
+    import os
+
+    local_models_dir = 'local_models_2013_2016'
+    if not os.path.exists(local_models_dir):
+        os.makedirs(local_models_dir)
+
+    # Save each local model individually (using naming format consistent with SHAP analysis code)
+    for i, local_model in enumerate(local_models):
+        try:
+            # Use naming format consistent with SHAP analysis code
+            model_filename = f'{local_models_dir}/local_model_{i}.json'
+            local_model.save_model(model_filename)
+            print(f"Local model {i} saved as {model_filename}")
+        except AttributeError:
+            # If save_model is not available, try joblib
+            model_filename = f'{local_models_dir}/local_model_{i}.pkl'
+            import joblib
+
+            joblib.dump(local_model, model_filename)
+            print(f"Local model {i} saved as {model_filename}")
+
+    # Save spatial unit information (for creating GeoDataFrame)
+    spatial_units_data = {
+        'coordinates': Coords.values.tolist(),
+        'feature_names': X.columns.tolist(),
+        'num_units': num_units
+    }
+
+    # Save spatial unit information
+    import json
+
+    with open(f'{local_models_dir}/spatial_units_info.json', 'w') as f:
+        json.dump(spatial_units_data, f, indent=2)
+    print(f"Spatial units info saved as {local_models_dir}/spatial_units_info.json")
+
+    # Save feature data (for SHAP analysis)
+    X.to_csv(f'{local_models_dir}/X_test.csv', index=False)
+    print(f"Feature data saved as {local_models_dir}/X_test.csv")
+
+    # Save local model predictions and statistics
+    if 'local_models' in Output_GXGB_LocalModel:
+        # Save local model predictions and statistics
+        if 'Prediction' in Output_GXGB_LocalModel:
+            prediction_df = Output_GXGB_LocalModel['Prediction']
+            prediction_df.to_excel(f'{local_models_dir}/local_predictions.xlsx', index=False)
+            print(f"Local predictions saved as {local_models_dir}/local_predictions.xlsx")
+        if 'Stats' in Output_GXGB_LocalModel:
+            stats_df = Output_GXGB_LocalModel['Stats']
+            stats_df.to_excel(f'{local_models_dir}/local_stats.xlsx', index=False)
+            print(f"Local statistics saved as {local_models_dir}/local_stats.xlsx")
+    else:
+        print("Local models not found, please check dictionary structure:", Output_GXGB_LocalModel.keys())
+        print("Available keys:", list(Output_GXGB_LocalModel.keys()))
+
+# Save complete GXGB output (optional)
+import joblib
+
+joblib.dump(Output_GXGB_LocalModel, '2013_2016GXGB_complete_output.pkl')
+print("Complete GXGB output saved as 2013_2016GXGB_complete_output.pkl")
+
+## Step 7 Predict (unseen data)
+# MODIFIED: Updated file names for prediction data
+# Input data to predict
+DataPredict = pd.read_csv('2013PredictData.csv')  # MODIFIED FILE NAME
+CoordsPredict = pd.read_csv('2013PredictCoords.csv')  # MODIFIED FILE NAME
+
+# predict
+Output_PredictGXGBoost = gx.predict_gxgb(DataPredict, CoordsPredict, Coords, Output_GXGB_LocalModel, alpha_wt=0.5,
+                                         alpha_wt_type='varying')
